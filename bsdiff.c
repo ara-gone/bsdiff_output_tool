@@ -26,7 +26,6 @@
  */
 
 #include "bsdiff.h"
-
 #include <limits.h>
 #include <string.h>
 
@@ -244,22 +243,35 @@ static int bsdiff_internal(const struct bsdiff_request req)
 		oldscore=0;
 
 		for(scsc=scan+=len;scan<req.newsize;scan++) {
+
+			/* 'oldscore' is the number of characters that match between the
+             * substrings 'old[lastoffset + scan:lastoffset + scsc]' and
+             * 'new[scan:scsc]'. */
 			len=search(I,req.old,req.oldsize,req.new+scan,req.newsize-scan,
 					0,req.oldsize,&pos);
+			printf("Search made match of length: %d at pos: %d\n", len, pos);
 
+			/* If this match extends further than the last one, add any new
+             * matching characters to 'oldscore'. i.e. Approximate extension outwards*/
 			for(;scsc<scan+len;scsc++)
 			if((scsc+lastoffset<req.oldsize) &&
 				(req.old[scsc+lastoffset] == req.new[scsc]))
 				oldscore++;
-
+			
+			/* Choose this as our match if it contains more than eight
+             * characters that would be wrong if matched with a forward
+             * extension of the previous match instead. */
 			if(((len==oldscore) && (len!=0)) || 
 				(len>oldscore+8)) break;
 
+			/* Since we're advancing 'scan' by 1, remove the character under it
+             * from 'oldscore' if it matches. */
 			if((scan+lastoffset<req.oldsize) &&
 				(req.old[scan+lastoffset] == req.new[scan]))
 				oldscore--;
 		};
 
+		/* To make a backwards extension or not? */
 		if((len!=oldscore) || (scan==req.newsize)) {
 			s=0;Sf=0;lenf=0;
 			for(i=0;(lastscan+i<scan)&&(lastpos+i<req.oldsize);) {
@@ -277,6 +289,9 @@ static int bsdiff_internal(const struct bsdiff_request req)
 				};
 			};
 
+			/* If there is an overlap between the extensions, find the best
+             * dividing point in the middle and reset 'lenf' and 'lenb'
+             * accordingly. */
 			if(lastscan+lenf>scan-lenb) {
 				overlap=(lastscan+lenf)-(scan-lenb);
 				s=0;Ss=0;lens=0;
@@ -291,6 +306,13 @@ static int bsdiff_internal(const struct bsdiff_request req)
 				lenf+=lens-overlap;
 				lenb-=lens;
 			};
+
+			/* Write the following triple of integers to the control section:
+             *  - length of the diff
+             *  - length of the extra section
+             *  - offset between the end of the diff and the start of the next
+             *      diff, in the old file
+             */
 
 			offtout(lenf,buf);
 			offtout((scan-lenb)-(lastscan+lenf),buf+8);
@@ -311,6 +333,11 @@ static int bsdiff_internal(const struct bsdiff_request req)
 				buffer[i]=req.new[lastscan+lenf+i];
 			if (writedata(req.stream, buffer, (scan-lenb)-(lastscan+lenf)))
 				return -1;
+
+			/* Update the variables describing the last match. Note that
+             * 'lastscan' is set to the start of the current match _after_ the
+             * backwards extension; the data in that extension will be written
+             * in the next pass. */
 
 			lastscan=scan-lenb;
 			lastpos=pos-lenb;
@@ -382,7 +409,7 @@ int main(int argc,char *argv[])
 	uint8_t buf[8];
 	FILE * pf;
 	struct bsdiff_stream stream;
-	BZFILE* bz2;
+	BZFILE* bz2; 
 
 	memset(&bz2, 0, sizeof(bz2));
 	stream.malloc = malloc;

@@ -1,8 +1,8 @@
 .deps/*
 .libs/*
 *.lo
-*.o
 .dirstamp
+stamp-h1
 Makefile-bsdiff.am.inc
 AUTHORS
 NEWS

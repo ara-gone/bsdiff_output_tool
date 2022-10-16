@@ -1,0 +1,47 @@
+   1              	# 0 "./src/cubic.s"
+   2              	# 1 "U:\\1290-cubic//"
+   0              	
+   0              	
+   0              	
+   1              	  .syntax unified
+   2              	  .cpu cortex-m3
+   3              	  .fpu softvfp
+   4              	  .thumb
+   5              	  
+   6              	  .global  Main
+   7              	
+   8              	Main:
+   9              	
+  10              	  @
+  11              	  @ Write a program to compute ax^3+bx^2+cx+d
+  12              	  @   where x, a, b, c, and d are values in R1, R2, R3, R4 and R5 respectively
+  13              	  @
+  14              	  @ Store your result in R0
+  15              	  @
+  16              	
+  17 0000 4FF00100 	  MOV R0, #1
+  18 0004 4FF00201 	  MOV R1, #2
+  19 0008 00EB0102 	  ADD R2, R0, R1
+  20 000c 1346     	  MOV R3, R2
+  21              	
+  22 000e 032B     	  CMP R3, #3
+  23 0010 00D0     	  BEQ ifEqual
+  24              	
+  25 0012 1C46     	  MOV R4, R3
+  26              	ifEqual:
+  27              	
+  28              	  @ *** your program goes here ***
+  29              	
+  30              	  @ End of program ... check your result
+  31              	
+  32              	End_Main:
+  33 0014 7047     	  BX    LR
+  34              	
+  35              	  .end...
+DEFINED SYMBOLS
+       ./src/cubic.s:8      .text:0000000000000000 Main
+       ./src/cubic.s:17     .text:0000000000000000 $t
+       ./src/cubic.s:26     .text:0000000000000014 ifEqual
+       ./src/cubic.s:32     .text:0000000000000014 End_Main
+
+NO UNDEFINED SYMBOLS
