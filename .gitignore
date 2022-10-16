@@ -7,7 +7,6 @@ Makefile-bsdiff.am.inc
 AUTHORS
 NEWS
 README
-ChangeLog
 COPYING
 INSTALL
 install-sh
