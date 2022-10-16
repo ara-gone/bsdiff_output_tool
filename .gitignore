@@ -9,3 +9,8 @@ NEWS
 README
 ChangeLog
 COPYING
+INSTALL
+install-sh
+missing
+depcomp
+compile
