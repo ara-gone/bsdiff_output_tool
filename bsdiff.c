@@ -92,24 +92,50 @@ static void split(int64_t *I,int64_t *V,int64_t start,int64_t len,int64_t h)
 	if(start+len>kk) split(I,V,kk,start+len-kk,h);
 }
 
+/* qsufsort(I, V, old, oldsize)
+ *
+ * Computes the suffix sort of the string at 'old' and stores the resulting
+ * indices in 'I', using 'V' as a temporary array for the computation. */
 static void qsufsort(int64_t *I,int64_t *V,const uint8_t *old,int64_t oldsize)
-{
+{	
+	// In this function we order oldfile string values (there are 256 ASCII values)
+	// The arrays I and V have a length = length of oldfile.
 	int64_t buckets[256];
 	int64_t i,h,len;
 
+    /* count number of each byte  */
 	for(i=0;i<256;i++) buckets[i]=0;
 	for(i=0;i<oldsize;i++) buckets[old[i]]++;
+
+	/* make buckets cumulative */
 	for(i=1;i<256;i++) buckets[i]+=buckets[i-1];
+
+	/* shift right by one */
 	for(i=255;i>0;i--) buckets[i]=buckets[i-1];
 	buckets[0]=0;
 
+	/* at this point, buckets[c] is the number of bytes in the old file with
+     * value less than c. */
+
+	/* Set up for suffix sorting. 
+	The array 'I' will contain the indices.
+	old[i] gets the bytes from oldfile in order.
+	Reading this value into buckets; we get the number of bytes in oldfile with a lesser value than the current character + 1
+	So what is stored in I is the current character at the index representing a particular number of bytes
+	i.e. There are 13 values in oldfile less than 'D'. Store 'D' at 14. (Note that D = 68 in decimal)*/
 	for(i=0;i<oldsize;i++) I[++buckets[old[i]]]=i;
 	I[0]=oldsize;
+
+	// Set temporary array values
 	for(i=0;i<oldsize;i++) V[i]=buckets[old[i]];
 	V[oldsize]=0;
+
+	/* forward any entries in the ordering which have the same initial
+     * character */
 	for(i=1;i<256;i++) if(buckets[i]==buckets[i-1]+1) I[buckets[i]]=-1;
 	I[0]=-1;
 
+	// Find the longest common substring to increase chance of probabilistic matching
 	for(h=1;I[0]!=-(oldsize+1);h+=h) {
 		len=0;
 		for(i=0;i<oldsize+1;) {
@@ -127,9 +153,14 @@ static void qsufsort(int64_t *I,int64_t *V,const uint8_t *old,int64_t oldsize)
 		if(len) I[i-len]=-len;
 	};
 
-	for(i=0;i<oldsize+1;i++) I[V[i]]=i;
+	// I is as long as the file size. Place V[i] 
+	for(i=0;i<oldsize+1;i++) {
+		I[V[i]]=i;
+		printf("qsufsort: placed %d into I[%d]\n", i, V[i]);
+	}
 }
 
+// Called by search function. Returns a number of bytes that match between 
 static int64_t matchlen(const uint8_t *old,int64_t oldsize,const uint8_t *new,int64_t newsize)
 {
 	int64_t i;
@@ -140,12 +171,17 @@ static int64_t matchlen(const uint8_t *old,int64_t oldsize,const uint8_t *new,in
 	return i;
 }
 
+// search(I,req.old,req.oldsize,req.new+scan,req.newsize-scan,0,req.oldsize,&pos);
+// Binary search to find index
 static int64_t search(const int64_t *I,const uint8_t *old,int64_t oldsize,
 		const uint8_t *new,int64_t newsize,int64_t st,int64_t en,int64_t *pos)
 {
 	int64_t x,y;
 
+	// st = 0, en = req.oldsize. start search area with entire oldfile 
 	if(en-st<2) {
+
+		// choose the longer match 
 		x=matchlen(old+I[st],oldsize-I[st],new,newsize);
 		y=matchlen(old+I[en],oldsize-I[en],new,newsize);
 
@@ -158,6 +194,7 @@ static int64_t search(const int64_t *I,const uint8_t *old,int64_t oldsize,
 		}
 	};
 
+	// go to either x-en space or st-x space (divide in half)
 	x=st+(en-st)/2;
 	if(memcmp(old+I[x],new,MIN(oldsize-I[x],newsize))<0) {
 		return search(I,old,oldsize,new,newsize,x,en,pos);
@@ -228,6 +265,11 @@ static int bsdiff_internal(const struct bsdiff_request req)
 	uint8_t *buffer;
 	uint8_t buf[8 * 3];
 
+	/*
+	if (((I = malloc((oldsize + 1) * sizeof(off_t))) == NULL) ||
+        ((V = malloc((oldsize + 1) * sizeof(off_t))) == NULL))
+        err(1, NULL);
+	*/
 	if((V=req.stream->malloc((req.oldsize+1)*sizeof(int64_t)))==NULL) return -1;
 	I = req.I;
 
@@ -249,7 +291,7 @@ static int bsdiff_internal(const struct bsdiff_request req)
              * 'new[scan:scsc]'. */
 			len=search(I,req.old,req.oldsize,req.new+scan,req.newsize-scan,
 					0,req.oldsize,&pos);
-			printf("Search made match of length: %d at pos: %d\n", len, pos);
+			printf("bsdiff_internal: Search made match of length: %d at pos: %d\n", len, pos);
 
 			/* If this match extends further than the last one, add any new
              * matching characters to 'oldscore'. i.e. Approximate extension outwards*/
@@ -261,8 +303,10 @@ static int bsdiff_internal(const struct bsdiff_request req)
 			/* Choose this as our match if it contains more than eight
              * characters that would be wrong if matched with a forward
              * extension of the previous match instead. */
+
+			// if ((len>oldscore) && (len!=0)) but (len < oldscore+8) continue 
 			if(((len==oldscore) && (len!=0)) || 
-				(len>oldscore+8)) break;
+				(len>oldscore+8)) break; // why break here? if ((len>oldscore) && (len!=0)) then you should continue matching
 
 			/* Since we're advancing 'scan' by 1, remove the character under it
              * from 'oldscore' if it matches. */
@@ -271,8 +315,12 @@ static int bsdiff_internal(const struct bsdiff_request req)
 				oldscore--;
 		};
 
+		/* Skip this section if we found an exact match that would be
+         * better serviced by a forward extension of the previous match. */
+
 		/* To make a backwards extension or not? */
 		if((len!=oldscore) || (scan==req.newsize)) {
+			
 			s=0;Sf=0;lenf=0;
 			for(i=0;(lastscan+i<scan)&&(lastpos+i<req.oldsize);) {
 				if(req.old[lastpos+i]==req.new[lastscan+i]) s++;
@@ -280,6 +328,8 @@ static int bsdiff_internal(const struct bsdiff_request req)
 				if(s*2-i>Sf*2-lenf) { Sf=s; lenf=i; };
 			};
 
+			
+            /* ... and how far backwards the next match should be extended. */
 			lenb=0;
 			if(scan<req.newsize) {
 				s=0;Sb=0;
@@ -368,6 +418,7 @@ int bsdiff(const uint8_t* old, int64_t oldsize, const uint8_t* new, int64_t news
 	req.newsize = newsize;
 	req.stream = stream;
 
+	// Call to compute the differences
 	result = bsdiff_internal(req);
 
 	stream->free(req.buffer);
@@ -400,6 +451,7 @@ static int bz2_write(struct bsdiff_stream* stream, const void* buffer, int size)
 	return 0;
 }
 
+// also sometimes int bsdiff(int argc,char *argv[])
 int main(int argc,char *argv[])
 {
 	int fd;
@@ -427,7 +479,6 @@ int main(int argc,char *argv[])
 		(read(fd,old,oldsize)!=oldsize) ||
 		(close(fd)==-1)) err(1,"%s",argv[1]);
 
-
 	/* Allocate newsize+1 bytes instead of newsize bytes to ensure
 		that we never try to malloc(0) and get a NULL pointer */
 	if(((fd=open(argv[2],O_RDONLY,0))<0) ||
@@ -442,15 +493,26 @@ int main(int argc,char *argv[])
 		err(1, "%s", argv[3]);
 
 	/* Write header (signature+newsize)*/
+
+	/* Header is
+        0    8     "BSDIFN40"
+        8    8    length of ctrl block
+        16    8    length of diff block
+        24    8    length of new file */
+    /* File is
+        0    32    Header
+        32    ??    ctrl block
+        ??    ??    diff block
+        ??    ??    extra block */
 	offtout(newsize, buf);
 	if (fwrite("ENDSLEY/BSDIFF43", 16, 1, pf) != 1 ||
 		fwrite(buf, sizeof(buf), 1, pf) != 1)
 		err(1, "Failed to write header");
 
-
 	if (NULL == (bz2 = BZ2_bzWriteOpen(&bz2err, pf, 9, 0, 0)))
 		errx(1, "BZ2_bzWriteOpen, bz2err=%d", bz2err);
 
+	// Call main bsdiff program
 	stream.opaque = bz2;
 	if (bsdiff(old, oldsize, new, newsize, &stream))
 		err(1, "bsdiff");

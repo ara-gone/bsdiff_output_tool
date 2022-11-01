@@ -23,8 +23,11 @@ config.h.in
 config.status
 configure
 bpatch
+bspatch
+config.h.in~
 bsdiff
 Makefile.in
 Makefile
 autom4te.cache/requests
 COPYING
+newfile.txt

@@ -30,10 +30,13 @@
 
 static int64_t offtin(uint8_t *buf)
 {
+	// Decode header information and other things in patch
 	int64_t y;
 
-	y=buf[7]&0x7F;
-	y=y*256;y+=buf[6];
+	// e.g. BZh91AY& = 14
+
+	y=buf[7]&0x7F;			// 0x26 AND 0x7F = 0x26
+	y=y*256;y+=buf[6];		
 	y=y*256;y+=buf[5];
 	y=y*256;y+=buf[4];
 	y=y*256;y+=buf[3];
@@ -43,11 +46,14 @@ static int64_t offtin(uint8_t *buf)
 
 	if(buf[7]&0x80) y=-y;
 
+	printf("%d\n", y);
 	return y;
 }
 
 int bspatch(const uint8_t* old, int64_t oldsize, uint8_t* new, int64_t newsize, struct bspatch_stream* stream)
 {
+	// The goal is to convert the patch file format to instructions
+	// Those instructions act on the oldfile bytes and the result is stored the byte array (uint8_t* new)
 	uint8_t buf[8];
 	int64_t oldpos,newpos;
 	int64_t ctrl[3];
@@ -55,14 +61,21 @@ int bspatch(const uint8_t* old, int64_t oldsize, uint8_t* new, int64_t newsize, 
 
 	oldpos=0;newpos=0;
 	while(newpos<newsize) {
+
+		printf("bspatch: while loop - looking at pos %d\n", newpos);
 		/* Read control data */
+		// Control data comes in a tuple (xyz) where X = add Y = copy and Z = forward
+		// X reads the diff block
+		// Y copies the extra block
+		// Z seeks forwards in oldfile by Z bytes
+		printf("bspatch: read block from header as:\n");
 		for(i=0;i<=2;i++) {
 			if (stream->read(stream, buf, 8))
 				return -1;
 			ctrl[i]=offtin(buf);
 		};
 
-		/* Sanity-check */
+		// Corruption check
 		if (ctrl[0]<0 || ctrl[0]>INT_MAX ||
 			ctrl[1]<0 || ctrl[1]>INT_MAX ||
 			newpos+ctrl[0]>newsize)
@@ -77,6 +90,10 @@ int bspatch(const uint8_t* old, int64_t oldsize, uint8_t* new, int64_t newsize, 
 			if((oldpos+i>=0) && (oldpos+i<oldsize))
 				new[newpos+i]+=old[oldpos+i];
 
+		printf("bspatch: new after diff... \n");
+		printf(new);
+		printf("\n");
+
 		/* Adjust pointers */
 		newpos+=ctrl[0];
 		oldpos+=ctrl[0];
@@ -88,6 +105,10 @@ int bspatch(const uint8_t* old, int64_t oldsize, uint8_t* new, int64_t newsize, 
 		/* Read extra string */
 		if (stream->read(stream, new + newpos, ctrl[1]))
 			return -1;
+
+		printf("bspatch: new after extra... \n");
+		printf(new);
+		printf("\n");
 
 		/* Adjust pointers */
 		newpos+=ctrl[1];
@@ -142,6 +163,20 @@ int main(int argc,char * argv[])
 	if ((f = fopen(argv[3], "r")) == NULL)
 		err(1, "fopen(%s)", argv[3]);
 
+	/*
+	File format:
+		0	8	"BSDIFF40" (bzip2) or "BSDIFN40" (raw)
+		8	8	X
+		16	8	Y
+		24	8	sizeof(newfile)
+		32	X	bzip2(control block)
+		32+X	Y	bzip2(diff block)
+		32+X+Y	???	bzip2(extra block)
+	with control block a set of triples (x,y,z) meaning "add x bytes
+	from oldfile to x bytes from the diff block; copy y bytes from the
+	extra block; seek forwards in oldfile by z bytes".
+	*/
+
 	/* Read header */
 	if (fread(header, 1, 24, f) != 24) {
 		if (feof(f))
@@ -153,11 +188,12 @@ int main(int argc,char * argv[])
 	if (memcmp(header, "ENDSLEY/BSDIFF43", 16) != 0)
 		errx(1, "Corrupt patch\n");
 
+	printf("bspatch: read from header newsize:\n");
 	/* Read lengths from header */
 	newsize=offtin(header+16);
 	if(newsize<0)
 		errx(1,"Corrupt patch\n");
-
+	
 	/* Close patch file and re-open it via libbzip2 at the right places */
 	if(((fd=open(argv[1],O_RDONLY,0))<0) ||
 		((oldsize=lseek(fd,0,SEEK_END))==-1) ||
@@ -169,7 +205,7 @@ int main(int argc,char * argv[])
 	if((new=malloc(newsize+1))==NULL) err(1,NULL);
 
 	if (NULL == (bz2 = BZ2_bzReadOpen(&bz2err, f, 0, 0, NULL, 0)))
-		errx(1, "BZ2_bzReadOpen, bz2err=%d", bz2err);
+		errx(1, "BZ2_bzReadOpen, bz2err=%c", bz2err);
 
 	stream.read = bz2_read;
 	stream.opaque = bz2;
@@ -179,6 +215,10 @@ int main(int argc,char * argv[])
 	/* Clean up the bzip2 reads */
 	BZ2_bzReadClose(&bz2err, bz2);
 	fclose(f);
+
+	printf("bspatch: wrote %d bytes to the newfile as\n", newsize);
+	printf(new);
+	printf("\n");
 
 	/* Write the new file */
 	if(((fd=open(argv[2],O_CREAT|O_TRUNC|O_WRONLY,sb.st_mode))<0) ||
