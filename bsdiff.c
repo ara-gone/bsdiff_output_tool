@@ -178,8 +178,8 @@ static int64_t search(const int64_t *I,const uint8_t *old,int64_t oldsize,
 {
 	int64_t x,y;
 
-	// st = 0, en = req.oldsize. start search area with entire oldfile 
-	if(en-st<2) {
+	// st = 0, en = req.oldsize.
+	if(en-st<2) { // break recursion; pick one of two pos 'st' or 'en'
 
 		// choose the longer match 
 		x=matchlen(old+I[st],oldsize-I[st],new,newsize);
@@ -279,26 +279,32 @@ static int bsdiff_internal(const struct bsdiff_request req)
 	buffer = req.buffer;
 
 	/* Compute the differences, writing ctrl as we go */
+	printf("bsdiff_internal: req looks like req.old=%d and req.new=%d\n", req.old, req.new);
+	
 	scan=0;len=0;pos=0;
 	lastscan=0;lastpos=0;lastoffset=0;
 	while(scan<req.newsize) {
-		oldscore=0;
 
-		for(scsc=scan+=len;scan<req.newsize;scan++) {
-
-			/* 'oldscore' is the number of characters that match between the
+		/* 'oldscore' is the number of characters that match between the
              * substrings 'old[lastoffset + scan:lastoffset + scsc]' and
              * 'new[scan:scsc]'. */
+		oldscore=0;
+
+		for(scsc=scan+=len;scan<req.newsize;scan++) {	
+
 			len=search(I,req.old,req.oldsize,req.new+scan,req.newsize-scan,
 					0,req.oldsize,&pos);
-			printf("bsdiff_internal: Search made match of length: %d at pos: %d\n", len, pos);
 
+			printf("bsdiff_internal: Match of length: %d at pos: %d\n", len, pos);
+			
 			/* If this match extends further than the last one, add any new
              * matching characters to 'oldscore'. i.e. Approximate extension outwards*/
 			for(;scsc<scan+len;scsc++)
 			if((scsc+lastoffset<req.oldsize) &&
 				(req.old[scsc+lastoffset] == req.new[scsc]))
 				oldscore++;
+
+			// printf("bsdiff_internal: Oldscore: %d vs len: %d\n", oldscore, len);
 			
 			/* Choose this as our match if it contains more than eight
              * characters that would be wrong if matched with a forward
@@ -318,9 +324,10 @@ static int bsdiff_internal(const struct bsdiff_request req)
 		/* Skip this section if we found an exact match that would be
          * better serviced by a forward extension of the previous match. */
 
-		/* To make a backwards extension or not? */
+		/* To make a backwards extension or not? get lenf*/
 		if((len!=oldscore) || (scan==req.newsize)) {
-			
+
+			// If we've gone past the previous lines... we choose to record the match
 			s=0;Sf=0;lenf=0;
 			for(i=0;(lastscan+i<scan)&&(lastpos+i<req.oldsize);) {
 				if(req.old[lastpos+i]==req.new[lastscan+i]) s++;
@@ -328,8 +335,7 @@ static int bsdiff_internal(const struct bsdiff_request req)
 				if(s*2-i>Sf*2-lenf) { Sf=s; lenf=i; };
 			};
 
-			
-            /* ... and how far backwards the next match should be extended. */
+            /* ... and how far backwards the next match should be extended. get lenb*/
 			lenb=0;
 			if(scan<req.newsize) {
 				s=0;Sb=0;

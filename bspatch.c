@@ -45,8 +45,6 @@ static int64_t offtin(uint8_t *buf)
 	y=y*256;y+=buf[0];
 
 	if(buf[7]&0x80) y=-y;
-
-	printf("%d\n", y);
 	return y;
 }
 
@@ -73,6 +71,7 @@ int bspatch(const uint8_t* old, int64_t oldsize, uint8_t* new, int64_t newsize, 
 			if (stream->read(stream, buf, 8))
 				return -1;
 			ctrl[i]=offtin(buf);
+			printf("%d\n", ctrl[i]);
 		};
 
 		// Corruption check
